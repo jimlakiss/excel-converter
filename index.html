@@ -96,6 +96,21 @@
               </label>
             </div>
 
+            <div
+              id="exporter-settings-wonderbuild"
+              class="exporter-settings"
+              data-exporter-settings="wonderbuild"
+              hidden
+            >
+              <label class="field">
+                <span>Wonderbuild GST Free</span>
+                <select id="wonderbuild-gst-free">
+                  <option value="No" selected>No</option>
+                  <option value="Yes">Yes</option>
+                </select>
+              </label>
+            </div>
+
             <div class="actions">
               <button id="convert-button" type="submit">Convert</button>
               <button
@@ -148,14 +163,14 @@
           </div>
 
           <div class="results-columns">
-            <section>
+            <section class="scroll-panel">
               <h3>Warnings</h3>
               <ul id="warnings-list" class="message-list">
                 <li>No warnings yet.</li>
               </ul>
             </section>
 
-            <section>
+            <section class="scroll-panel">
               <h3>Rejected Rows</h3>
               <ul id="rejections-list" class="message-list">
                 <li>No rejected rows yet.</li>
@@ -168,10 +183,10 @@
       <section class="card preview-card" aria-labelledby="preview-title">
         <div class="section-heading">
           <h2 id="preview-title">Preview</h2>
-          <p>First 20 converted rows from the generated output.</p>
+          <p>First 200 converted rows from the generated output.</p>
         </div>
 
-        <div class="table-wrap">
+        <div class="table-wrap preview-scroll">
           <table>
             <thead id="preview-head"></thead>
             <tbody id="preview-body">

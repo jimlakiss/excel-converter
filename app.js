@@ -50,6 +50,7 @@ const BUILDXACT_COLUMNS = [
 ];
 
 const DEFAULT_DESCRIPTION_MAX_LENGTH = 250;
+const PREVIEW_ROW_LIMIT = 200;
 
 const state = {
   file: null,
@@ -63,6 +64,8 @@ const elements = {
   exportFormat: document.getElementById("export-format"),
   markupPercent: document.getElementById("markup-percent"),
   descriptionMaxLength: document.getElementById("description-max-length"),
+  wonderbuildGstFree: document.getElementById("wonderbuild-gst-free"),
+  exporterSettings: document.querySelectorAll("[data-exporter-settings]"),
   downloadButton: document.getElementById("download-button"),
   clearButton: document.getElementById("clear-button"),
   statusMessage: document.getElementById("status-message"),
@@ -85,6 +88,10 @@ elements.fileInput.addEventListener("change", (event) => {
       : "Select a spreadsheet to begin.",
     "default"
   );
+});
+
+elements.exportFormat.addEventListener("change", () => {
+  updateExporterSettingsVisibility();
 });
 
 elements.form.addEventListener("submit", async (event) => {
@@ -147,6 +154,8 @@ elements.downloadButton.addEventListener("click", () => {
 elements.clearButton.addEventListener("click", () => {
   resetApp();
 });
+
+updateExporterSettingsVisibility();
 
 function setStatus(message, tone) {
   elements.statusMessage.textContent = message;
@@ -545,7 +554,7 @@ function exportGenericPmImport(canonicalRows, originalFileName, exportOptions) {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
     fileName: `${stripExtension(originalFileName)}_converted_generic.xlsx`,
-    previewRows: rows.slice(0, 20),
+    previewRows: rows.slice(0, PREVIEW_ROW_LIMIT),
     previewColumns: PREVIEW_COLUMNS,
   };
 }
@@ -578,7 +587,7 @@ function exportBuildxact(canonicalRows, originalFileName, exportOptions) {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
     fileName: `${stripExtension(originalFileName)}_BX.xlsx`,
-    previewRows: rows.slice(0, 20),
+    previewRows: rows.slice(0, PREVIEW_ROW_LIMIT),
     previewColumns: BUILDXACT_COLUMNS,
   };
 }
@@ -599,7 +608,7 @@ function exportWonderbuild(canonicalRows, originalFileName, exportOptions) {
     "Cost Type": "",
     "Markup (%)": exportOptions.markupPercent,
     "Allowance Type (PC/PS)": "",
-    "GST Free (Yes/No)": "No",
+    "GST Free (Yes/No)": exportOptions.wonderbuildGstFree,
     Note: sanitiseExportText(row.notes),
     SKU: "",
   }));
@@ -618,7 +627,7 @@ function exportWonderbuild(canonicalRows, originalFileName, exportOptions) {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
     fileName: `${stripExtension(originalFileName)}_WB.xlsx`,
-    previewRows: rows.slice(0, 20),
+    previewRows: rows.slice(0, PREVIEW_ROW_LIMIT),
     previewColumns: WONDERBUILD_COLUMNS,
   };
 }
@@ -651,7 +660,7 @@ function exportPlaceholderTemplate(canonicalRows, originalFileName, suffix, note
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
     fileName: `${stripExtension(originalFileName)}_converted_${suffix}.xlsx`,
-    previewRows: rows.slice(0, 20),
+    previewRows: rows.slice(0, PREVIEW_ROW_LIMIT),
     previewColumns: PREVIEW_COLUMNS,
   };
 }
@@ -666,6 +675,7 @@ function getExportOptions() {
     descriptionMaxLength:
       parseOptionalPositiveInteger(elements.descriptionMaxLength.value) ||
       DEFAULT_DESCRIPTION_MAX_LENGTH,
+    wonderbuildGstFree: elements.wonderbuildGstFree.value || "No",
   };
 }
 
@@ -795,7 +805,17 @@ function resetApp() {
   resetDownload();
   elements.form.reset();
   renderResults(createEmptyResults(), []);
+  updateExporterSettingsVisibility();
   setStatus("Select a spreadsheet to begin.", "default");
+}
+
+function updateExporterSettingsVisibility() {
+  const selectedExporter = elements.exportFormat.value;
+
+  elements.exporterSettings.forEach((panel) => {
+    const matches = panel.dataset.exporterSettings === selectedExporter;
+    panel.hidden = !matches;
+  });
 }
 
 function downloadBlob(blob, fileName) {
