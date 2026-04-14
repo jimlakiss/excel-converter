@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CostX Converter Prototype</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <link rel="stylesheet" href="./style.css" />
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+    ></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="hero card">
+        <div class="hero-content">
+          <div class="hero-copy">
+            <h1>CostX Excel Converter</h1>
+            <p class="lead">
+              Upload a CostX-exported spreadsheet, standardise the rows
+              in-browser, and download a cleaned import file ready for project
+              management workflows.
+            </p>
+          </div>
+
+          <aside class="hero-brand" aria-label="Brand">
+            <img
+              src="./assets/cd-logo.jpg"
+              alt="CD iQs logo"
+              class="brand-logo"
+            />
+            <div class="brand-copy">
+              <p class="brand-name">CD iQs</p>
+              <p class="brand-line">
+                Quantity surveying and estimating grounded in real construction
+                experience.
+              </p>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="workspace-grid">
+        <section class="card controls-card" aria-labelledby="converter-title">
+          <div class="section-heading">
+            <h2 id="converter-title">Convert a File</h2>
+            <p>
+              The prototype processes the trade worksheets in-browser and keeps
+              all file handling on your device.
+            </p>
+          </div>
+
+          <form id="converter-form" class="converter-form">
+            <label class="field">
+              <span>Source file</span>
+              <input
+                id="file-input"
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                required
+              />
+            </label>
+
+            <label class="field">
+              <span>Output format</span>
+              <select id="export-format">
+                <option value="generic">Generic PM Import</option>
+                <option value="buildxact">Buildxact</option>
+                <option value="wonderbuild">Wonderbuild</option>
+              </select>
+            </label>
+
+            <div class="field-row">
+              <label class="field">
+                <span>Default markup % (optional)</span>
+                <input
+                  id="markup-percent"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Leave blank to omit"
+                />
+              </label>
+
+              <label class="field">
+                <span>Description max length (optional)</span>
+                <input
+                  id="description-max-length"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="250"
+                />
+              </label>
+            </div>
+
+            <div class="actions">
+              <button id="convert-button" type="submit">Convert</button>
+              <button
+                id="download-button"
+                type="button"
+                class="secondary"
+                disabled
+              >
+                Download Converted File
+              </button>
+              <button id="clear-button" type="button" class="tertiary">
+                Clear All
+              </button>
+            </div>
+          </form>
+
+          <div
+            id="status-message"
+            class="status-message"
+            role="status"
+            aria-live="polite"
+          >
+            Select a spreadsheet to begin.
+          </div>
+        </section>
+
+        <section class="card results-card" aria-labelledby="results-title">
+          <div class="section-heading">
+            <h2 id="results-title">Results</h2>
+            <p>Summary metrics, warnings, rejected rows, and a preview.</p>
+          </div>
+
+          <div class="stats-grid">
+            <article class="stat">
+              <span class="stat-label">Rows Read</span>
+              <strong id="rows-read">0</strong>
+            </article>
+            <article class="stat">
+              <span class="stat-label">Rows Converted</span>
+              <strong id="rows-converted">0</strong>
+            </article>
+            <article class="stat">
+              <span class="stat-label">Warning Rows</span>
+              <strong id="warning-count">0</strong>
+            </article>
+            <article class="stat">
+              <span class="stat-label">Rejected Rows</span>
+              <strong id="rejected-count">0</strong>
+            </article>
+          </div>
+
+          <div class="results-columns">
+            <section>
+              <h3>Warnings</h3>
+              <ul id="warnings-list" class="message-list">
+                <li>No warnings yet.</li>
+              </ul>
+            </section>
+
+            <section>
+              <h3>Rejected Rows</h3>
+              <ul id="rejections-list" class="message-list">
+                <li>No rejected rows yet.</li>
+              </ul>
+            </section>
+          </div>
+        </section>
+      </section>
+
+      <section class="card preview-card" aria-labelledby="preview-title">
+        <div class="section-heading">
+          <h2 id="preview-title">Preview</h2>
+          <p>First 20 converted rows from the generated output.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead id="preview-head"></thead>
+            <tbody id="preview-body">
+              <tr>
+                <td class="empty-state" colspan="8">
+                  Converted rows will appear here after processing.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
