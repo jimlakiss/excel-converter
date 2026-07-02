@@ -216,7 +216,9 @@ function buildSheetContexts(workbook) {
         header: 1,
         raw: false,
         defval: "",
-        blankrows: false,
+        // Preserve worksheet row positions so reported source row numbers
+        // stay aligned even when the CostX sheet contains separator rows.
+        blankrows: true,
       });
 
       if (!matrix.length) {
@@ -346,13 +348,17 @@ function transformRows(dataRows, headerMap, sourceStartRowNumber, sheetName) {
 
     const rawRecord = buildRawRecord(row, headerMap);
 
-    if (isSummaryRow(rawRecord)) {
+    if (isTotalRow(rawRecord)) {
       rejectedRows.push({
         sheetName,
         sourceRowNumber,
-        reason: "Skipped subtotal, total, or section header style row.",
+        reason: "Skipped subtotal or total row.",
         rawRecord,
       });
+      return;
+    }
+
+    if (isSectionHeaderRow(rawRecord)) {
       return;
     }
 
@@ -486,6 +492,51 @@ function isSummaryRow(rawRecord) {
     cleanText(rawRecord.amount) === "";
 
   return looksLikeSummary || (missingCoreValues && cleanText(rawRecord.description) === "");
+}
+
+function isTotalRow(rawRecord) {
+  const combined = [
+    rawRecord.code,
+    rawRecord.description,
+    rawRecord.category,
+    rawRecord.notes,
+  ]
+    .map(cleanText)
+    .join(" ")
+    .toLowerCase();
+
+  if (!combined) {
+    return false;
+  }
+
+  return ["subtotal", "sub total", "total", "grand total"].some((marker) =>
+    combined.includes(marker)
+  );
+}
+
+function isSectionHeaderRow(rawRecord) {
+  const code = cleanText(rawRecord.code);
+  const description = cleanText(rawRecord.description);
+  const quantity = cleanText(rawRecord.quantity);
+  const uom = cleanText(rawRecord.uom);
+  const rate = cleanText(rawRecord.rate);
+  const amount = cleanText(rawRecord.amount);
+  const notes = cleanText(rawRecord.notes);
+  const category = cleanText(rawRecord.category);
+
+  if (!description) {
+    return false;
+  }
+
+  const hasOnlyLabelContent =
+    quantity === "" &&
+    uom === "" &&
+    rate === "" &&
+    amount === "" &&
+    notes === "" &&
+    category === "";
+
+  return hasOnlyLabelContent;
 }
 
 function validateCanonicalRow(canonicalRow) {
