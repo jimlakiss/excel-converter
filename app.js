@@ -348,11 +348,11 @@ function transformRows(dataRows, headerMap, sourceStartRowNumber, sheetName) {
 
     const rawRecord = buildRawRecord(row, headerMap);
 
-    if (isTotalRow(rawRecord)) {
+    if (isTotalOnlyRow(rawRecord)) {
       rejectedRows.push({
         sheetName,
         sourceRowNumber,
-        reason: "Skipped subtotal or total row.",
+        reason: "Skipped total-only row.",
         rawRecord,
       });
       return;
@@ -494,24 +494,24 @@ function isSummaryRow(rawRecord) {
   return looksLikeSummary || (missingCoreValues && cleanText(rawRecord.description) === "");
 }
 
-function isTotalRow(rawRecord) {
-  const combined = [
-    rawRecord.code,
-    rawRecord.description,
-    rawRecord.category,
-    rawRecord.notes,
-  ]
-    .map(cleanText)
-    .join(" ")
-    .toLowerCase();
+function isTotalOnlyRow(rawRecord) {
+  const labels = [
+    cleanText(rawRecord.code),
+    cleanText(rawRecord.description),
+    cleanText(rawRecord.category),
+    cleanText(rawRecord.notes),
+  ].filter(Boolean);
 
-  if (!combined) {
+  if (!labels.length) {
     return false;
   }
 
-  return ["subtotal", "sub total", "total", "grand total"].some((marker) =>
-    combined.includes(marker)
-  );
+  if (labels.length > 1) {
+    return false;
+  }
+
+  const onlyLabel = labels[0].toLowerCase();
+  return ["total", "grand total", "subtotal", "sub total"].includes(onlyLabel);
 }
 
 function isSectionHeaderRow(rawRecord) {
