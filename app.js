@@ -322,7 +322,8 @@ function buildSheetContexts(workbook) {
       const worksheet = workbook.Sheets[sheetName];
       const matrix = XLSX.utils.sheet_to_json(worksheet, {
         header: 1,
-        raw: false,
+        // Use the underlying cell values, not Excel's displayed/rounded text.
+        raw: true,
         defval: "",
         // Preserve worksheet row positions so reported source row numbers
         // stay aligned even when the CostX sheet contains separator rows.
@@ -734,6 +735,7 @@ async function exportAnzsmmWorkbook(rows, originalFileName) {
   const templateSheetKeys = new Map(
     templateSheets.map((sheet) => [normaliseTradeKey(sheet.name), sheet])
   );
+  const tradeTotals = new Map();
   const warnings = [];
 
   templateSheets.forEach((sheet) => {
@@ -741,12 +743,13 @@ async function exportAnzsmmWorkbook(rows, originalFileName) {
       return;
     }
 
-    const targetRows = rowsByTemplateSheet.get(normaliseTradeKey(sheet.name)) || [];
-    populateAnzsmmTemplateSheet(sheet, targetRows);
+    const tradeKey = normaliseTradeKey(sheet.name);
+    const targetRows = rowsByTemplateSheet.get(tradeKey) || [];
+    tradeTotals.set(tradeKey, populateAnzsmmTemplateSheet(sheet, targetRows));
     restoreTemplateHomeLink(sheet);
   });
 
-  restoreTemplateSummaryLinks(summarySheet, workbook);
+  restoreTemplateSummaryLinks(summarySheet, workbook, tradeTotals);
 
   rowsByTemplateSheet.forEach((_, key) => {
     if (!templateSheetKeys.has(key)) {
@@ -806,6 +809,8 @@ function populateAnzsmmTemplateSheet(sheet, rows) {
     sheet.spliceRows(3, sheet.rowCount - 2);
   }
 
+  let tradeTotal = 0;
+
   rows.forEach((sourceRow, index) => {
     const rowNumber = index + 3;
     const targetRow = sheet.getRow(rowNumber);
@@ -817,8 +822,21 @@ function populateAnzsmmTemplateSheet(sheet, rows) {
     targetRow.getCell(4).value = sourceRow.uom;
     targetRow.getCell(5).value = sourceRow.rate;
 
-    if (isNumericCellValue(sourceRow.quantity) && isNumericCellValue(sourceRow.rate)) {
-      targetRow.getCell(6).value = { formula: `C${rowNumber}*E${rowNumber}` };
+    const quantity = getNumericCellValue(sourceRow.quantity);
+    const rate = getNumericCellValue(sourceRow.rate);
+    const sourceAmount = getNumericCellValue(sourceRow.amount);
+
+    if (quantity !== null && rate !== null) {
+      const lineTotal = sourceAmount ?? quantity * rate;
+      targetRow.getCell(6).value = {
+        formula: `IFERROR(C${rowNumber}*E${rowNumber},"")`,
+        result: lineTotal,
+      };
+      tradeTotal += lineTotal;
+    } else if (sourceAmount !== null) {
+      // Preserve a source amount that is not derived from Quantity x Rate.
+      targetRow.getCell(6).value = sourceAmount;
+      tradeTotal += sourceAmount;
     } else {
       // Do not retain the template's sample formula for a descriptive-only row.
       targetRow.getCell(6).value = null;
@@ -834,9 +852,17 @@ function populateAnzsmmTemplateSheet(sheet, rows) {
     totalRow.getCell(2).value = "Total";
     totalRow.getCell(6).value = {
       formula: `SUM(F2:F${Math.max(totalRowNumber - 1, 2)})`,
+      result: tradeTotal,
     };
     totalRow.commit();
   }
+
+  const tradeFormula = sheet.getCell("F1").formula;
+  if (tradeFormula) {
+    sheet.getCell("F1").value = { formula: tradeFormula, result: tradeTotal };
+  }
+
+  return tradeTotal;
 }
 
 function restoreTemplateHomeLink(sheet) {
@@ -846,7 +872,7 @@ function restoreTemplateHomeLink(sheet) {
   };
 }
 
-function restoreTemplateSummaryLinks(summarySheet, workbook) {
+function restoreTemplateSummaryLinks(summarySheet, workbook, tradeTotals) {
   if (!summarySheet) {
     return;
   }
@@ -864,7 +890,22 @@ function restoreTemplateSummaryLinks(summarySheet, workbook) {
       text: String(labelCell.value),
       hyperlink: `#'${targetSheetName}'!A1`,
     };
+
+    const totalCell = row.getCell(3);
+    totalCell.value = {
+      formula: totalFormula,
+      result: tradeTotals.get(normaliseTradeKey(targetSheetName)) || 0,
+    };
   });
+
+  const costTotal = Array.from(tradeTotals.values()).reduce(
+    (total, tradeTotal) => total + tradeTotal,
+    0
+  );
+  const costTotalCell = summarySheet.getCell("C49");
+  if (costTotalCell.formula) {
+    costTotalCell.value = { formula: costTotalCell.formula, result: costTotal };
+  }
 }
 
 function getFormulaSheetReference(formula) {
@@ -914,6 +955,20 @@ function isNumericCellValue(value) {
   }
 
   return /^-?\d+(?:\.\d+)?$/.test(String(value ?? "").trim().replace(/,/g, ""));
+}
+
+function getNumericCellValue(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  const text = String(value ?? "").trim().replace(/,/g, "");
+  if (!text) {
+    return null;
+  }
+
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function exportGenericPmImport(canonicalRows, originalFileName, exportOptions) {
