@@ -51,6 +51,9 @@ const BUILDXACT_COLUMNS = [
 
 const DEFAULT_DESCRIPTION_MAX_LENGTH = 250;
 const PREVIEW_ROW_LIMIT = 200;
+const ANZSMM_TEMPLATE_URL =
+  "./templates/ANZSMM%202022%20-%20TEMPLATE_V1.0.xlsx";
+const ANZSMM_TEMPLATE_SHEET_START_INDEX = 1;
 
 const state = {
   file: null,
@@ -109,15 +112,23 @@ elements.form.addEventListener("submit", async (event) => {
 
   try {
     setStatus("Reading workbook and converting rows...", "default");
-    const parsed = await parseInputFile(state.file);
     const formatKey = elements.exportFormat.value;
+    const parsed =
+      formatKey === "anzsmm"
+        ? await parseAnzsmmInputFile(state.file)
+        : await parseInputFile(state.file);
     const exportOptions = getExportOptions();
-    const exported = exportRows(
+    const exported = await exportRows(
       parsed.convertedRows,
       formatKey,
       state.file.name,
       exportOptions
     );
+
+    if (exported.warnings?.length) {
+      parsed.warnings.push(...exported.warnings);
+      parsed.summary.warningRows += exported.warnings.length;
+    }
 
     state.results = parsed;
     state.download = exported;
@@ -175,7 +186,7 @@ async function parseInputFile(file) {
   const workbook = XLSX.read(buffer, {
     type: "array",
     cellDates: true,
-    raw: false,
+    raw: true,
   });
 
   if (!workbook.SheetNames.length) {
@@ -202,6 +213,103 @@ async function parseInputFile(file) {
       rejectedRows: transformed.rejectedRows.length,
     },
   };
+}
+
+async function parseAnzsmmInputFile(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, {
+    type: "array",
+    cellDates: true,
+    raw: true,
+  });
+
+  if (!workbook.SheetNames.length) {
+    throw new Error("No worksheet was found in the uploaded file.");
+  }
+
+  const sheetContexts = buildSheetContexts(workbook);
+  if (!sheetContexts.length) {
+    throw new Error("No readable CostX trade worksheets were found in the uploaded file.");
+  }
+
+  const transformed = transformAnzsmmSheets(sheetContexts);
+
+  return {
+    sheetNames: sheetContexts.map((sheet) => sheet.sheetName),
+    convertedRows: transformed.convertedRows,
+    warnings: transformed.warningMessages,
+    rejectedRows: transformed.rejectedRows,
+    summary: {
+      rowsRead: transformed.rowsRead,
+      convertedRows: transformed.convertedRows.length,
+      warningRows: transformed.warningRowCount,
+      rejectedRows: transformed.rejectedRows.length,
+    },
+  };
+}
+
+function transformAnzsmmSheets(sheetContexts) {
+  const aggregate = {
+    rowsRead: 0,
+    convertedRows: [],
+    warningMessages: [],
+    warningRowCount: 0,
+    rejectedRows: [],
+  };
+
+  sheetContexts.forEach((sheet) => {
+    sheet.dataRows.forEach((row, index) => {
+      const sourceRowNumber = sheet.headerRowIndex + 2 + index;
+
+      if (isRowCompletelyBlank(row)) {
+        return;
+      }
+
+      aggregate.rowsRead += 1;
+      const rawRecord = buildRawRecord(row, sheet.headerMap);
+
+      if (isTotalOnlyRow(rawRecord)) {
+        aggregate.rejectedRows.push({
+          sheetName: sheet.sheetName,
+          sourceRowNumber,
+          reason: "Skipped total-only row.",
+          rawRecord,
+        });
+        return;
+      }
+
+      const warnings = [];
+      if (!hasCellValue(rawRecord.code)) {
+        warnings.push("Missing code");
+      }
+      if (!hasCellValue(rawRecord.description)) {
+        warnings.push("Missing description");
+      }
+
+      if (warnings.length) {
+        aggregate.warningRowCount += 1;
+        aggregate.warningMessages.push(
+          `${sheet.sheetName} row ${sourceRowNumber}: ${warnings.join("; ")}`
+        );
+      }
+
+      aggregate.convertedRows.push({
+        code: cleanWorkbookCellValue(rawRecord.code),
+        description: cleanWorkbookCellValue(rawRecord.description),
+        quantity: cleanWorkbookCellValue(rawRecord.quantity),
+        uom: cleanWorkbookCellValue(rawRecord.uom),
+        rate: cleanWorkbookCellValue(rawRecord.rate),
+        amount: cleanWorkbookCellValue(rawRecord.amount),
+        category: normaliseSheetCategory(sheet.sheetName),
+        source_sheet_name: sheet.sheetName,
+        source_row_number: sourceRowNumber,
+        template_sheet_key: normaliseTradeKey(sheet.sheetName),
+        warnings,
+      });
+    });
+  });
+
+  return aggregate;
 }
 
 function buildSheetContexts(workbook) {
@@ -442,6 +550,18 @@ function cleanText(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
 }
 
+function cleanWorkbookCellValue(value) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  return value ?? "";
+}
+
+function hasCellValue(value) {
+  return cleanText(value) !== "";
+}
+
 function truncateText(value, maxLength) {
   return value.length > maxLength ? value.slice(0, maxLength) : value;
 }
@@ -462,6 +582,13 @@ function parseNumericValue(value) {
 function normaliseSheetCategory(sheetName) {
   return String(sheetName || "")
     .replace(/^\d+\s*-\s*/, "")
+    .trim();
+}
+
+function normaliseTradeKey(sheetName) {
+  return normaliseSheetCategory(sheetName)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
     .trim();
 }
 
@@ -566,15 +693,227 @@ function validateCanonicalRow(canonicalRow) {
   return { warnings, rejectReason: null };
 }
 
-function exportRows(canonicalRows, formatKey, originalFileName, exportOptions) {
+async function exportRows(canonicalRows, formatKey, originalFileName, exportOptions) {
   const exporters = {
     generic: exportGenericPmImport,
     buildxact: exportBuildxact,
     wonderbuild: exportWonderbuild,
+    anzsmm: exportAnzsmmWorkbook,
   };
 
   const exporter = exporters[formatKey] || exportGenericPmImport;
   return exporter(canonicalRows, originalFileName, exportOptions);
+}
+
+async function exportAnzsmmWorkbook(rows, originalFileName) {
+  if (typeof ExcelJS === "undefined") {
+    throw new Error(
+      "The template workbook library failed to load. Please refresh and try again."
+    );
+  }
+
+  const response = await fetch(ANZSMM_TEMPLATE_URL);
+  if (!response.ok) {
+    throw new Error(
+      "The ANZSMM template could not be loaded. Please run the app from a local web server or GitHub Pages."
+    );
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await response.arrayBuffer());
+
+  const summarySheet = workbook.getWorksheet("Summary");
+  if (summarySheet) {
+    summarySheet.getCell("A1").value = stripExtension(originalFileName);
+  }
+
+  const rowsByTemplateSheet = groupRowsByTemplateSheet(rows);
+  const templateSheets = workbook.worksheets.slice(
+    ANZSMM_TEMPLATE_SHEET_START_INDEX
+  );
+  const templateSheetKeys = new Map(
+    templateSheets.map((sheet) => [normaliseTradeKey(sheet.name), sheet])
+  );
+  const warnings = [];
+
+  templateSheets.forEach((sheet) => {
+    if (sheet.name === "Sheet1") {
+      return;
+    }
+
+    const targetRows = rowsByTemplateSheet.get(normaliseTradeKey(sheet.name)) || [];
+    populateAnzsmmTemplateSheet(sheet, targetRows);
+    restoreTemplateHomeLink(sheet);
+  });
+
+  restoreTemplateSummaryLinks(summarySheet, workbook);
+
+  rowsByTemplateSheet.forEach((_, key) => {
+    if (!templateSheetKeys.has(key)) {
+      const sourceName = rows.find((row) => row.template_sheet_key === key)
+        ?.source_sheet_name;
+      warnings.push(
+        `${sourceName || key}: no matching ANZSMM template tab was found.`
+      );
+    }
+  });
+
+  // Excel recalculates the preserved summary and trade formulas when opened.
+  workbook.calcProperties.fullCalcOnLoad = true;
+  workbook.calcProperties.forceFullCalc = true;
+
+  const arrayBuffer = await workbook.xlsx.writeBuffer();
+  const previewRows = rows.slice(0, PREVIEW_ROW_LIMIT).map((row) => ({
+    Code: row.code,
+    Description: row.description,
+    Quantity: row.quantity,
+    UoM: row.uom,
+    Rate: row.rate,
+    Amount: row.amount,
+    Category: row.category,
+    Notes: "",
+  }));
+
+  return {
+    blob: new Blob([arrayBuffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+    fileName: `${stripExtension(originalFileName)}_iqs.xlsx`,
+    previewRows,
+    previewColumns: PREVIEW_COLUMNS,
+    warnings,
+  };
+}
+
+function groupRowsByTemplateSheet(rows) {
+  return rows.reduce((groups, row) => {
+    const existing = groups.get(row.template_sheet_key) || [];
+    existing.push(row);
+    groups.set(row.template_sheet_key, existing);
+    return groups;
+  }, new Map());
+}
+
+function populateAnzsmmTemplateSheet(sheet, rows) {
+  const dataStyle = captureRowStyle(sheet.getRow(3));
+  const totalStyle = captureRowStyle(sheet.getRow(Math.min(sheet.rowCount, 4)));
+  const dataRowHeight = sheet.getRow(3).height;
+  const totalRowHeight = sheet.getRow(Math.min(sheet.rowCount, 4)).height;
+
+  // The template's first two rows hold the trade title, HOME link, and headers.
+  // Rebuilding from row 3 removes sample rows while preserving those controls.
+  if (sheet.rowCount > 2) {
+    sheet.spliceRows(3, sheet.rowCount - 2);
+  }
+
+  rows.forEach((sourceRow, index) => {
+    const rowNumber = index + 3;
+    const targetRow = sheet.getRow(rowNumber);
+    applyRowStyle(targetRow, dataStyle, dataRowHeight);
+
+    targetRow.getCell(1).value = sourceRow.code;
+    targetRow.getCell(2).value = sourceRow.description;
+    targetRow.getCell(3).value = sourceRow.quantity;
+    targetRow.getCell(4).value = sourceRow.uom;
+    targetRow.getCell(5).value = sourceRow.rate;
+
+    if (isNumericCellValue(sourceRow.quantity) && isNumericCellValue(sourceRow.rate)) {
+      targetRow.getCell(6).value = { formula: `C${rowNumber}*E${rowNumber}` };
+    } else {
+      // Do not retain the template's sample formula for a descriptive-only row.
+      targetRow.getCell(6).value = null;
+    }
+
+    targetRow.commit();
+  });
+
+  if (rows.length) {
+    const totalRowNumber = rows.length + 3;
+    const totalRow = sheet.getRow(totalRowNumber);
+    applyRowStyle(totalRow, totalStyle, totalRowHeight);
+    totalRow.getCell(2).value = "Total";
+    totalRow.getCell(6).value = {
+      formula: `SUM(F2:F${Math.max(totalRowNumber - 1, 2)})`,
+    };
+    totalRow.commit();
+  }
+}
+
+function restoreTemplateHomeLink(sheet) {
+  sheet.getCell("E1").value = {
+    text: "HOME",
+    hyperlink: "#'Summary'!A1",
+  };
+}
+
+function restoreTemplateSummaryLinks(summarySheet, workbook) {
+  if (!summarySheet) {
+    return;
+  }
+
+  summarySheet.eachRow((row) => {
+    const totalFormula = row.getCell(3).formula;
+    const targetSheetName = getFormulaSheetReference(totalFormula);
+    const labelCell = row.getCell(2);
+
+    if (!targetSheetName || !workbook.getWorksheet(targetSheetName) || !labelCell.value) {
+      return;
+    }
+
+    labelCell.value = {
+      text: String(labelCell.value),
+      hyperlink: `#'${targetSheetName}'!A1`,
+    };
+  });
+}
+
+function getFormulaSheetReference(formula) {
+  const match = String(formula || "").match(/'([^']+)'!/);
+  return match?.[1] || null;
+}
+
+function captureRowStyle(row) {
+  return Array.from({ length: 6 }, (_, index) => {
+    const cell = row.getCell(index + 1);
+    return {
+      style: cloneExcelValue(cell.style),
+      fill: cloneExcelValue(cell.fill),
+      font: cloneExcelValue(cell.font),
+      border: cloneExcelValue(cell.border),
+      alignment: cloneExcelValue(cell.alignment),
+      protection: cloneExcelValue(cell.protection),
+      numFmt: cell.numFmt,
+    };
+  });
+}
+
+function applyRowStyle(row, cellStyles, height) {
+  if (height) {
+    row.height = height;
+  }
+
+  cellStyles.forEach((sourceStyle, index) => {
+    const cell = row.getCell(index + 1);
+    cell.style = cloneExcelValue(sourceStyle.style);
+    cell.fill = cloneExcelValue(sourceStyle.fill);
+    cell.font = cloneExcelValue(sourceStyle.font);
+    cell.border = cloneExcelValue(sourceStyle.border);
+    cell.alignment = cloneExcelValue(sourceStyle.alignment);
+    cell.protection = cloneExcelValue(sourceStyle.protection);
+    cell.numFmt = sourceStyle.numFmt;
+  });
+}
+
+function cloneExcelValue(value) {
+  return value ? JSON.parse(JSON.stringify(value)) : value;
+}
+
+function isNumericCellValue(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+
+  return /^-?\d+(?:\.\d+)?$/.test(String(value ?? "").trim().replace(/,/g, ""));
 }
 
 function exportGenericPmImport(canonicalRows, originalFileName, exportOptions) {
@@ -927,6 +1266,7 @@ function getExporterLabel(formatKey) {
     generic: "Generic PM Import",
     buildxact: "Buildxact",
     wonderbuild: "Wonderbuild",
+    anzsmm: "ANZSMM 2022 Workbook",
   };
 
   return labels[formatKey] || "selected export";

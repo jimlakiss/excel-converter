@@ -59,7 +59,7 @@ select {
 
 .hero-content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 1.5rem;
   align-items: center;
 }
@@ -73,7 +73,8 @@ select {
   align-items: center;
   justify-content: flex-end;
   gap: 1rem;
-  padding: 1rem 1.1rem;
+  width: fit-content;
+  padding: 0.5rem 0.7rem;
   background: linear-gradient(180deg, #fbfcfd 0%, #f3f6f8 100%);
   border: 1px solid var(--border);
   border-radius: var(--radius);

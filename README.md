@@ -1,6 +1,6 @@
-# CostX Converter Prototype
+# CostX Converter
 
-A small static browser app for converting a CostX-exported spreadsheet into a cleaned import file for builder or project management software. The prototype runs entirely in the browser using plain HTML, CSS, and JavaScript with [SheetJS](https://sheetjs.com/) for spreadsheet parsing and export.
+A small static browser app for converting a CostX-exported spreadsheet into a cleaned import file for builder or project management software. It runs entirely in the browser using plain HTML, CSS, and JavaScript, with [SheetJS](https://sheetjs.com/) for flat imports and [ExcelJS](https://github.com/exceljs/exceljs) for template-preserving workbook exports.
 
 ## Features
 
@@ -13,14 +13,16 @@ A small static browser app for converting a CostX-exported spreadsheet into a cl
 - Buildxact exporter implemented from the supplied import template
 - Optional default markup percentage for Buildxact and Wonderbuild exports
 - Optional description max length override with a default of 250 characters
+- ANZSMM 2022 workbook exporter using the bundled standard template
 - In-browser file processing and immediate download
-- Results summary, warnings list, rejected rows list, and a 20-row preview
+- Results summary, warnings list, rejected rows list, and a 200-row preview
 
 ## Project Structure
 
 - `index.html` - page structure and CDN script loading
 - `style.css` - responsive layout and presentation styles
 - `app.js` - parsing, transformation, validation, exporting, and UI logic
+- `templates/ANZSMM 2022 - TEMPLATE_V1.0.xlsx` - base workbook for the ANZSMM exporter
 - `README.md` - setup, deployment, and extension notes
 
 ## How It Works
@@ -43,6 +45,24 @@ A small static browser app for converting a CostX-exported spreadsheet into a cl
    - `warnings`
 6. The selected exporter converts canonical rows into the requested import sheet.
 7. The browser immediately downloads the converted file.
+
+### ANZSMM 2022 Workbook Export
+
+The `ANZSMM 2022 Workbook` option starts from
+`templates/ANZSMM 2022 - TEMPLATE_V1.0.xlsx`, then matches CostX trade tabs to
+the template by trade name instead of tab number. This allows an export to use
+only the standard trades present in the uploaded CostX workbook.
+
+- All template tabs remain in the output workbook.
+- Matching CostX tabs populate the corresponding template tab.
+- Template-only tabs are blank below their fixed title and header rows.
+- Exact final `Total` rows from CostX are omitted; other non-blank rows are copied.
+- The template's summary sheet, formulas, formatting, and internal `HOME` links are retained.
+- Populated trade tabs receive line-total and final-total formulas.
+- The download uses the original input filename with `_iqs.xlsx` appended.
+
+The template is loaded as a static site asset. Use GitHub Pages or a local web
+server for this exporter rather than opening `index.html` directly with `file://`.
 
 ## Transformation Rules
 
@@ -104,6 +124,7 @@ http://localhost:8000
 - `Generic PM Import`
 - `Buildxact`
 - `Wonderbuild`
+- `ANZSMM 2022 Workbook`
 
 Output columns:
 
@@ -159,6 +180,7 @@ The code is intentionally split into small functions so future changes stay loca
 - Canonical row logic: update `createCanonicalRow`
 - Validation rules: update `validateCanonicalRow`
 - Export formats: add a new exporter and register it in `exportRows`
+- Template exports: follow `exportAnzsmmWorkbook` and bundle each base workbook as a static asset
 - UI rendering: extend `renderResults` and `renderPreviewTable`
 
 ## Future Extension Points
@@ -187,7 +209,8 @@ One clean next step would be to keep the current browser transformer as a refere
 
 ## Notes
 
-- The prototype uses the first worksheet only.
+- Flat import exports use the first worksheet as a summary tab when multiple sheets are present.
+- The ANZSMM exporter maps all CostX trade worksheets to the standard template.
 - No files are uploaded to a server.
 - No analytics or third-party APIs are used.
 - The app is designed for maintainability first, not visual complexity.
